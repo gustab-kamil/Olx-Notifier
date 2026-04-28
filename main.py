@@ -2,12 +2,33 @@ import argparse  # Parse arguments
 import certifi  # Certificate issue fix*
 import logging
 import os
-import re  # Regex; extract substrings
 import ssl  # Certificate issue fix*
 import time  # Delay execution
 from bs4 import BeautifulSoup  # BeautifulSoup; parsing HTML
-from urllib.request import urlopen  # Open URLs
 from urllib import request  # Get OLX page source
+from urllib.parse import parse_qs, urlencode, urljoin, urlparse, urlunparse
+
+
+REQUEST_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36"
+    )
+}
+
+SEARCH_URL_PAUSE_DURATION = 30
+
+
+def open_url(url):
+    req = request.Request(url, headers=REQUEST_HEADERS)
+    return request.urlopen(
+        req, context=ssl.create_default_context(cafile=certifi.where())
+    )
+
+
+def normalize_ad_url(url):
+    parsed_url = urlparse(url)
+    return urlunparse(parsed_url._replace(query="", fragment=""))
 
 
 def filter_extended(url_list):
@@ -23,71 +44,62 @@ def scrap_page(url):
     logging.debug(f"Waiting for {pause_duration}s before opening URL...")
     time.sleep(pause_duration)
     logging.debug("Opening page...")
-    page = request.urlopen(
-        url, context=ssl.create_default_context(cafile=certifi.where())
-    )
+    page = open_url(url)
     logging.debug("Scraping page...")
     soup = BeautifulSoup(page, features="lxml")
 
-    target_class = "css-qo0cxu"
-
-    for link in soup.find_all("a", {"class": target_class}):
+    for link in soup.find_all("a", href=True):
         half_link = link.get("href")
-        if "https://" not in half_link:
-            full_link = f"https://www.olx.pl{half_link}"
-        else:
-            full_link = half_link
+        if "/d/oferta/" not in half_link:
+            continue
+        full_link = normalize_ad_url(urljoin("https://www.olx.pl", half_link))
         temp_list_of_items.append(full_link)
+    temp_list_of_items = list(dict.fromkeys(temp_list_of_items))
     logging.info(f"Found {len(temp_list_of_items)} items on page.")
     return temp_list_of_items
 
 
 def get_number_of_pages(url_):
     # *NOTE: number of search results pages
-    page = urlopen(
-        url_, context=ssl.create_default_context(cafile=certifi.where())
-    )
+    page = open_url(url_)
     soup = BeautifulSoup(page, "html.parser")  # parse the page
-    target_class = "css-1mi714g"
-    pages = soup.find_all("a", {"class": target_class})
-    try:
-        num_of_pages = str(re.findall(">..<", str(pages))[-1])[1:-1]
-        if not num_of_pages.isdigit():
-            num_of_pages = str(re.findall(">.<", str(pages))[-1])[1:-1]
-        # num_of_pages = len(soup.find_all("a", {"class": target_class}))
-        # logging.debug(soup.find_all("a", {"class": target_class}))
-        return int(num_of_pages)
-    except IndexError:
-        # in this case we have just one page, returning int: 1
-        return 1
+    page_numbers = [1]
+
+    for link in soup.find_all("a", href=True):
+        href = link.get("href")
+        query = parse_qs(urlparse(urljoin(url_, href)).query)
+        page_number = query.get("page", [None])[0]
+        if page_number and page_number.isdigit():
+            page_numbers.append(int(page_number))
+
+    return max(page_numbers)
 
 
 def remove_dups(list_):
     temp_list = []
     for item in list_:
-        # temp_item = temp_item.split("?")[0]
-        temp_list.append(item.split("#")[0])
+        temp_list.append(normalize_ad_url(item))
     return set(temp_list)
+
+
+def build_page_url(url, page_number):
+    parsed_url = urlparse(url)
+    query = parse_qs(parsed_url.query, keep_blank_values=True)
+    query["page"] = [str(page_number)]
+    updated_query = urlencode(query, doseq=True)
+    return urlunparse(parsed_url._replace(query=updated_query))
 
 
 def get_list_of_ads(url):
     number_of_pages_to_scrap = get_number_of_pages(url)
 
-    page_prefix = "?page="
     page_number = 1
     list_of_items = []
 
     while page_number <= number_of_pages_to_scrap:
         logging.info(f"Page number: {page_number}/{number_of_pages_to_scrap}")
-        p_pos = url.find("?search")
-        if p_pos == -1:
-            p_pos = url.find("&search")
-            page_prefix = "&page="
-            full_url = f"{url[:p_pos]}{page_prefix}{page_number}{url[p_pos:]}"
-        else:
-            # in this case we need to replace "?search" with "&search"
-            full_url = f"{url[:p_pos]}{page_prefix}{page_number}&{url[p_pos + 1:]}"
-        print(full_url)
+        full_url = build_page_url(url, page_number)
+        logging.debug(f"Scraping URL: {full_url}")
         list_of_items.extend(scrap_page(full_url))
         page_number += 1  # Go to the next page
 
@@ -96,12 +108,33 @@ def get_list_of_ads(url):
     return final_set
 
 
+def get_ads_from_urls(urls):
+    all_ads = []
+
+    for index, url in enumerate(urls, start=1):
+        formatted_url = format_url(url)
+        logging.info(f"Processing URL {index}/{len(urls)}: {formatted_url}")
+        all_ads.extend(get_list_of_ads(formatted_url))
+
+        if index < len(urls):
+            logging.info(
+                "Waiting %ss before scraping the next URL...",
+                SEARCH_URL_PAUSE_DURATION,
+            )
+            time.sleep(SEARCH_URL_PAUSE_DURATION)
+
+    return remove_dups(all_ads)
+
+
+def sanitize_urls(urls):
+    return [url.strip() for url in urls if url and url.strip()]
+
+
 def write_to_file(data):
     with open("previous_results.txt", "a") as file:
-        if len(data) == 1:
-            new_data = f"\n{str(data)[2:-2]}"
-        else:
-            new_data = str(data)[2:-2].replace("', '", "\n")
+        new_data = "\n".join(data)
+        if file.tell() > 0 and new_data:
+            new_data = f"\n{new_data}"
         file.write(new_data)
 
 
@@ -109,18 +142,24 @@ def check_data(data):
     global first_run
     try:
         with open("previous_results.txt", "r") as file:
-            file_content = file.read()
+            known_items = {
+                normalize_ad_url(line.strip()) for line in file if line.strip()
+            }
     except FileNotFoundError:
         logging.info("It's first run, creating file...")
         cwd = os.getcwd()
         os.system(f"touch {cwd}/previous_results.txt")
         first_run = True
-        file_content = ""
+        known_items = set()
+
+    if not known_items:
+        first_run = True
 
     found_ads = []
     for item in data:
-        if item not in file_content:
-            found_ads.append(item)
+        normalized_item = normalize_ad_url(item)
+        if normalized_item not in known_items:
+            found_ads.append(normalized_item)
 
     filtered_ads = filter_extended(found_ads)
 
@@ -142,7 +181,12 @@ def notify_telegram(data, config_path=None):
 def notify_ntfy(data, topic):
     logging.info("Sending notification(s) through Ntfy.sh!")
 
-    req = request.Request(f"https://ntfy.sh/{topic}", data=str(*data).encode("utf-8"))
+    message = "\n".join(data)
+    req = request.Request(
+        f"https://ntfy.sh/{topic}",
+        data=message.encode("utf-8"),
+        headers=REQUEST_HEADERS,
+    )
     request.urlopen(req)
 
 def format_url(url):
@@ -173,42 +217,46 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "-u", "--url",
-        help="Provide url to check ads from.",
-        type=str,
+        help="Provide one or more urls to check ads from.",
+        nargs="+",
         required=False
     )
     args = parser.parse_args()
-    # log_lvl = logging.INFO
-    log_lvl = logging.DEBUG
+    log_lvl = logging.INFO
     if args.debug:
         log_lvl = logging.DEBUG
     first_run = False
 
     logging.basicConfig(
         level=log_lvl,
-        filename="logs.log",
-        format="%(levelname)s : %(asctime)s : %(message)s"
+        format="%(levelname)s : %(asctime)s : %(message)s",
+        handlers=[
+            logging.FileHandler("logs.log"),
+            logging.StreamHandler(),
+        ],
     )
 
-    # ========== URL to scrape if nothing given in parameter ==========
-    given_url = ""
-    # =================================================================
+    # ========== URLs to scrape if nothing given in parameter ==========
+    given_urls = [
+        ""
+    ]
+    # ==================================================================
 
     if args.url:
-        given_url = args.url
-        logging.debug("Using URL from parameter...")
+        given_urls = sanitize_urls(args.url)
+        logging.debug("Using URLs from parameter...")
     else:
-        logging.debug("You didn't provide url, taking url from code file...")
-        if not given_url:
+        given_urls = sanitize_urls(given_urls)
+        logging.debug("You didn't provide urls, taking URLs from code file...")
+        if not given_urls:
             logging.error(
-                "Didn't find URL in code nor in paramter, provide URL!"
+                "Didn't find URLs in code nor in parameter, provide at least one URL!"
             )
             raise SystemExit(
-                "Didn't find URL in code nor in paramter, provide URL!"
+                "Didn't find URLs in code nor in parameter, provide at least one URL!"
             )
 
-    page_url = format_url(given_url)
-    ads_list = get_list_of_ads(page_url)
+    ads_list = get_ads_from_urls(given_urls)
     new_ads = check_data(ads_list)
     if new_ads:
         write_to_file(new_ads)
