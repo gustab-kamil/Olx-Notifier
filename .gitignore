@@ -1,6 +1,5 @@
 .idea
 venv
 __pycache__
-passes.txt
 previous_results.txt
 logs.log

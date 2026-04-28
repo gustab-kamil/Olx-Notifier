@@ -130,13 +130,6 @@ def check_data(data):
     return filtered_ads
 
 
-def notify_mail(data):
-    import email_notificator  # File import
-
-    logging.info("Sending notification(s) through Mail!")
-    email_notificator.send_mail(data)
-
-
 def notify_telegram(data, config_path=None):
     import telegram_send  # Telegram message sending library
 
@@ -176,7 +169,7 @@ if __name__ == "__main__":
         help="Choose way of notifying about new ads.",
         type=str,
         required=True,
-        # choices=["mail", "no-notify", "telegram", "ntfy"]
+        # choices=["no-notify", "telegram", "ntfy"]
     )
     parser.add_argument(
         "-u", "--url",
@@ -229,8 +222,6 @@ if __name__ == "__main__":
                     notify_telegram(new_ads, args.config)
                 else:
                     notify_telegram(new_ads)
-            elif args.notify == "mail":
-                notify_mail(new_ads)
             elif args.notify.startswith("ntfy"):
                 notify_ntfy(new_ads, args.notify[5:])
             else:

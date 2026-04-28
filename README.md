@@ -14,7 +14,7 @@ Make sure you have installed:
 
 You can choose between two options of notifying
 - By telegram message (preferred option)
-- By e-mail
+- By ntfy.sh
 ---
 ### a) Notifying by telegram message
 To do so you first need to configure your `telegram_send` package.
@@ -26,25 +26,7 @@ To do so:
 4. Voi'la - you can simply use your bot!
 
 ---
-### b) Notifying by mail
-
-For best experience you should use gmail along with per-app-password for your script.
-More about App Password for gmail - [here](https://support.google.com/accounts/answer/185833)
-
-You should fill file named:
-
-`passes.txt`
-
-Data examples:
-
-1. Recipient Email
-2. Sender Email address
-3. Sender Email app-password
-
-![options.txt example screen](https://i.imgur.com/YR5KSeG.png)
-
----
-### c) Notifying by [ntfy.sh](https://ntfy.sh) (preffered option)
+### b) Notifying by [ntfy.sh](https://ntfy.sh) (preffered option)
 To do so you first need to configure your receiver decice - with [ntfy](https://ntfy.sh) app.
 
 Then you create your topic, subscribe to it on the receiver and provide the topic in the `--notify` option like this: (--notify ntfy_<your_topic>)
@@ -55,7 +37,6 @@ Then you create your topic, subscribe to it on the receiver and provide the topi
 To start - just run the following command at the root of your project like e.g.:
 ```
 python3 main.py --url <your-url> --notify telegram
-python3 main.py --url <your-url> --notify mail
 python3 main.py --url <your-url> --notify ntfy_<your_topic>
 python3 main.py --url --notify no-notify
 
