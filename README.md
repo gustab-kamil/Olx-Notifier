@@ -65,7 +65,7 @@ python3 main.py --debug --notify telegram
 Example with multiple URLs:
 
 ```bash
-python3 main.py --debug --notify ntfy_kamil-flat2026 \
+python3 main.py --debug --notify ntfy_exmaple-topic \
 	--url "https://www.olx.pl/search-url-1" \
 				"https://www.olx.pl/search-url-2"
 ```
